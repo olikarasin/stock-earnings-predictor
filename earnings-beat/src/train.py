@@ -132,7 +132,6 @@ def train_pipeline(tickers_file: Optional[Path] = None, years: int = 8, models_d
     from sklearn.linear_model import LogisticRegression
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.calibration import CalibratedClassifierCV
-    from lightgbm import LGBMClassifier
 
     from .features import build_labeled_events, get_feature_columns
 
@@ -167,6 +166,8 @@ def train_pipeline(tickers_file: Optional[Path] = None, years: int = 8, models_d
     # Models
     # Train LightGBM, fallback to RandomForest if unavailable
     try:
+        from lightgbm import LGBMClassifier  # type: ignore
+
         lgbm = LGBMClassifier(
             objective="binary",
             n_estimators=600,
