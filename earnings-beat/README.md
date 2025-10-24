@@ -35,6 +35,12 @@ python -m src.cli evaluate --features data/features/AAPL_features.parquet --mode
 python -m src.cli predict --features data/features/AAPL_features.parquet --model models/beat_predictor.joblib
 ```
 
+7) Full training pipeline and single-ticker inference:
+```bash
+python -m src.train --tickers-file tickers.txt --years 8
+python -m src.beat_predictor --ticker AAPL
+```
+
 ### Test matrix (example)
 This repo is compatible with a simple GitHub Actions-like matrix (not included here):
 ```
