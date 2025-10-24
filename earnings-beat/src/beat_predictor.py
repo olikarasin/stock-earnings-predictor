@@ -75,9 +75,17 @@ def _load_artifacts(models_dir: Path):
     import json
     import joblib
 
-    model = joblib.load(models_dir / "beat_model.pkl")
-    calibrator = joblib.load(models_dir / "calibrator.pkl")
+    model_path = models_dir / "beat_model.pkl"
+    calibrator_path = models_dir / "calibrator.pkl"
     spec_path = models_dir / "feature_spec.json"
+    # Pre-check presence to provide a friendly message
+    if not (model_path.exists() and calibrator_path.exists() and spec_path.exists()):
+        raise FileNotFoundError(
+            "Model files not found. Please run training first: python -m src.train --tickers-file tickers.txt --years 8"
+        )
+
+    model = joblib.load(model_path)
+    calibrator = joblib.load(calibrator_path)
     features: list[str]
     medians: dict[str, float] = {}
     if spec_path.exists():
@@ -117,7 +125,7 @@ def _load_artifacts(models_dir: Path):
     return model, calibrator, features, medians, stats
 
 
-def _median_impute_row(df_row, features: list[str], medians: dict[str, float]):
+def _median_impute_row(df_row, features: list[str], medians: dict[str, float], stats: dict):
     import pandas as pd
     import numpy as np
 
@@ -129,12 +137,19 @@ def _median_impute_row(df_row, features: list[str], medians: dict[str, float]):
     for c in features:
         val = X.at[0, c]
         if pd.isna(val):
-            X.at[0, c] = float(medians.get(c, 0.0))
+            # Prefer global medians from feature_stats.json when available
+            fallback = medians.get(c)
+            if fallback is None:
+                fallback = (stats.get("median") or {}).get(c, 0.0)
+            X.at[0, c] = float(fallback)
         else:
             try:
                 X.at[0, c] = float(val)
             except Exception:
-                X.at[0, c] = float(medians.get(c, 0.0))
+                fallback = medians.get(c)
+                if fallback is None:
+                    fallback = (stats.get("median") or {}).get(c, 0.0)
+                X.at[0, c] = float(fallback)
     return X
 
 
@@ -169,21 +184,31 @@ def _format_verdict(p: float) -> str:
     return "Unsure"
 
 
-def _predict_for_ticker(ticker: str) -> int:
+def _predict_for_ticker(ticker: str, json_out: bool = False) -> int:
     import joblib
     import pandas as pd
+    import json as _json
 
     from .features import build_features_for_inference
 
     models_dir = Path(__file__).resolve().parents[1] / "models"
-    model, calibrator, features, medians, stats = _load_artifacts(models_dir)
-    if not features:
-        print("Feature spec not found; please train the model first.")
+    try:
+        model, calibrator, features, medians, stats = _load_artifacts(models_dir)
+    except FileNotFoundError as e:
+        print(str(e))
         return 1
 
     X_raw, notes = build_features_for_inference(ticker)
     row = X_raw.iloc[0]
-    X = _median_impute_row(row, features, medians)
+    # Track features that were entirely missing/NaN and imputed
+    missing_features: list[str] = []
+    for c in features:
+        try:
+            if c not in row or pd.isna(row.get(c)):
+                missing_features.append(c)
+        except Exception:
+            missing_features.append(c)
+    X = _median_impute_row(row, features, medians, stats)
 
     # Predict
     try:
@@ -198,34 +223,58 @@ def _predict_for_ticker(ticker: str) -> int:
     verdict = _format_verdict(p)
     drivers = _compute_top_drivers_zscores(X, features, stats)
 
-    # Print output
-    print(f"Ticker: {ticker}")
-    print(f"Beat probability: {p:.0%}")
-    print(f"Verdict: {verdict}")
-    if drivers:
-        def fmt(name, val):
-            sign = "+" if val >= 0 else "-"
-            return f"{name} {sign}{abs(val):.2f}"
-        tops = ", ".join([fmt(name, val) for name, val in drivers])
-        print(f"Top drivers: {tops}")
+    # Prepare output notes and warnings
+    warnings = []
+    if missing_features:
+        warnings.append("imputed features: " + ", ".join(missing_features))
     upcoming = notes.get("upcoming_earnings_date") if isinstance(notes, dict) else None
-    if upcoming:
-        print(f"Notes: upcoming ER date {upcoming}")
-    # PT drift counts
+    pt_up = None
+    pt_down = None
     try:
         pt_up = X_raw.iloc[0].get("pt_up_90d")
         pt_down = X_raw.iloc[0].get("pt_down_90d")
-        if pd.notna(pt_up) or pd.notna(pt_down):
-            print(f"Notes: PT drift 90d up={pt_up}, down={pt_down}")
     except Exception:
         pass
-    return 0
+
+    if json_out:
+        obj = {
+            "ticker": ticker,
+            "prob": p,
+            "verdict": verdict,
+            "prob_raw": p_raw,
+            "drivers": [{"feature": n, "z": float(v)} for n, v in drivers],
+            "notes": {"upcoming_earnings_date": upcoming, "pt_up_90d": pt_up, "pt_down_90d": pt_down},
+            "warnings": warnings,
+        }
+        print(_json.dumps(obj, separators=(",", ":")))
+        return 0
+    else:
+        # Human-readable output
+        print(f"Ticker: {ticker}")
+        print(f"Beat probability: {p:.0%}")
+        print(f"Verdict: {verdict}")
+        if drivers:
+            def fmt(name, val):
+                sign = "+" if val >= 0 else "-"
+                return f"{name} {sign}{abs(val):.2f}"
+            tops = ", ".join([fmt(name, val) for name, val in drivers])
+            print(f"Top drivers: {tops}")
+        if upcoming:
+            print(f"Notes: upcoming ER date {upcoming}")
+        if pt_up is not None or pt_down is not None:
+            print(f"Notes: PT drift 90d up={pt_up}, down={pt_down}")
+        if warnings:
+            print("data_warnings:")
+            for w in warnings:
+                print(f"- {w}")
+        return 0
 
 
 def build_parser():
     import argparse
     p = argparse.ArgumentParser(prog="beat-predictor")
     p.add_argument("--ticker", type=str, default=None)
+    p.add_argument("--json", action="store_true", help="Emit compact JSON for scripting")
     return p
 
 
@@ -240,7 +289,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not ticker:
         print("No ticker provided.")
         return 1
-    return _predict_for_ticker(ticker)
+    return _predict_for_ticker(ticker, json_out=bool(getattr(args, "json", False)))
 
 
 if __name__ == "__main__":
