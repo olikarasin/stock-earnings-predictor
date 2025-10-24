@@ -187,7 +187,18 @@ def train_pipeline(tickers_file: Optional[Path] = None, years: int = 8, models_d
     # Persist artifacts
     joblib.dump(lgbm, models_dir / "beat_model.pkl")
     joblib.dump(calibrator, models_dir / "calibrator.pkl")
+    # Feature spec retains order
     (models_dir / "feature_spec.json").write_text(json.dumps(feature_cols))
+    # Feature stats for lightweight driver explanation
+    q = train_df[feature_cols].quantile([0.25, 0.75], numeric_only=True)
+    q25 = q.loc[0.25]
+    q75 = q.loc[0.75]
+    med = train_df[feature_cols].median(numeric_only=True)
+    feature_stats = {
+        "median": {c: float(med.get(c, 0.0)) for c in feature_cols},
+        "iqr": {c: float(max(q75.get(c, 0.0) - q25.get(c, 0.0), 0.0)) for c in feature_cols},
+    }
+    (models_dir / "feature_stats.json").write_text(json.dumps(feature_stats))
     (models_dir / "metrics.json").write_text(json.dumps({
         "lgbm_calibrated": metrics_lgbm,
         "logreg": metrics_lr,

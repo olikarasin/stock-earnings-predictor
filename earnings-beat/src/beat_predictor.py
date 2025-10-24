@@ -105,7 +105,16 @@ def _load_artifacts(models_dir: Path):
                 medians.update({str(k): float(v) for k, v in med_data.items()})
         except Exception:
             pass
-    return model, calibrator, features, medians
+    # Feature stats (median/IQR) for lightweight driver explanation
+    stats_path = models_dir / "feature_stats.json"
+    stats = {"median": {}, "iqr": {}}
+    if stats_path.exists():
+        try:
+            stats = json.loads(stats_path.read_text())
+        except Exception:
+            stats = {"median": {}, "iqr": {}}
+
+    return model, calibrator, features, medians, stats
 
 
 def _median_impute_row(df_row, features: list[str], medians: dict[str, float]):
@@ -129,30 +138,23 @@ def _median_impute_row(df_row, features: list[str], medians: dict[str, float]):
     return X
 
 
-def _compute_top_drivers(model, X_row, features: list[str], medians: dict[str, float]) -> list[tuple[str, float]]:
+def _compute_top_drivers_zscores(X_row, features: list[str], stats: dict) -> list[tuple[str, float]]:
     import numpy as np
+    import pandas as pd
 
-    # Try SHAP if available
-    try:
-        import shap  # type: ignore
-
-        explainer = shap.TreeExplainer(model)
-        vals = explainer.shap_values(X_row)
-        if isinstance(vals, list):
-            vals = vals[1] if len(vals) > 1 else vals[0]
-        sv = np.array(vals)[0]
-        idx = np.argsort(-np.abs(sv))[:3]
-        return [(features[i], float(sv[i])) for i in idx]
-    except Exception:
-        pass
-
-    # Fallback: standardized z-scores using medians (approximate)
+    med = {str(k): float(v) for k, v in (stats.get("median") or {}).items()}
+    iqr = {str(k): float(v) for k, v in (stats.get("iqr") or {}).items()}
     x = X_row.values.astype(float)[0]
     z = []
     for i, c in enumerate(features):
-        m = float(medians.get(c, 0.0))
-        denom = abs(m) if abs(m) > 1e-9 else 1.0
-        z.append((c, (x[i] - m) / denom))
+        v = x[i]
+        if pd.isna(v):
+            continue
+        m = med.get(c, 0.0)
+        q = iqr.get(c, 0.0)
+        denom = q if q and q > 0 else (abs(m) if abs(m) > 1e-9 else 1.0)
+        zval = (v - m) / denom
+        z.append((c, float(zval)))
     z.sort(key=lambda t: -abs(t[1]))
     return z[:3]
 
@@ -174,7 +176,7 @@ def _predict_for_ticker(ticker: str) -> int:
     from .features import build_features_for_inference
 
     models_dir = Path(__file__).resolve().parents[1] / "models"
-    model, calibrator, features, medians = _load_artifacts(models_dir)
+    model, calibrator, features, medians, stats = _load_artifacts(models_dir)
     if not features:
         print("Feature spec not found; please train the model first.")
         return 1
@@ -194,14 +196,17 @@ def _predict_for_ticker(ticker: str) -> int:
         p = p_raw
 
     verdict = _format_verdict(p)
-    drivers = _compute_top_drivers(model, X, features, medians)
+    drivers = _compute_top_drivers_zscores(X, features, stats)
 
     # Print output
     print(f"Ticker: {ticker}")
     print(f"Beat probability: {p:.0%}")
     print(f"Verdict: {verdict}")
     if drivers:
-        tops = ", ".join([f"{name} ({abs(val):.2f})" for name, val in drivers])
+        def fmt(name, val):
+            sign = "+" if val >= 0 else "-"
+            return f"{name} {sign}{abs(val):.2f}"
+        tops = ", ".join([fmt(name, val) for name, val in drivers])
         print(f"Top drivers: {tops}")
     upcoming = notes.get("upcoming_earnings_date") if isinstance(notes, dict) else None
     if upcoming:
