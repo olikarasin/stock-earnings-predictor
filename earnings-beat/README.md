@@ -41,6 +41,16 @@ python -m src.train --tickers-file tickers.txt --years 8
 python -m src.beat_predictor --ticker AAPL
 ```
 
+### Metrics
+- AUC: Area Under the ROC Curve; threshold-agnostic ranking quality of positive vs negative events.
+- Brier: Mean squared error between predicted probability and actual outcome (0/1). Lower is better.
+- Precision@Top10pct: Precision computed on the top 10% highest-probability predictions.
+
+### Data limitations
+- Yahoo Finance data can have gaps, revisions, and schema changes. Network requests may fail or rate-limit.
+- Financial statement mapping may vary by ticker (e.g., revenue line names). The code attempts robust fallbacks.
+- Recommendations feeds can be sparse and textual; the price-target detection is heuristic.
+
 ### Test matrix (example)
 This repo is compatible with a simple GitHub Actions-like matrix (not included here):
 ```

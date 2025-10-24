@@ -516,7 +516,13 @@ def build_labeled_events(tickers: list[str], lookback_years: int = 8) -> "pd.Dat
             return None
         return prior.max()
 
-    for ticker in tickers:
+    try:
+        from tqdm.auto import tqdm  # type: ignore
+        ticker_iter = tqdm(tickers, desc="Tickers", leave=True)
+    except Exception:
+        ticker_iter = tickers
+
+    for ticker in ticker_iter:
         cache_path = FEATURES_DIR / f"{ticker.upper()}_labeled_{lookback_years}y.parquet"
         existing = None
         if cache_path.exists():
@@ -543,7 +549,20 @@ def build_labeled_events(tickers: list[str], lookback_years: int = 8) -> "pd.Dat
         df_e = df_e.sort_values(date_col)
 
         rows: list[dict] = []
-        for _, row in df_e.iterrows():
+        try:
+            from tqdm.auto import tqdm  # type: ignore
+            event_iter = tqdm(df_e.itertuples(index=False), total=len(df_e), desc=f"{ticker} events", leave=False)
+            iter_wrapper = (tuple(getattr(r, c) for c in df_e.columns) for r in [])  # placeholder to satisfy type
+            # Rebuild iterator as tuples with positional fields aligned to df_e columns
+            def _row_iter():
+                for r in df_e.itertuples(index=False):
+                    yield tuple(getattr(r, c) for c in df_e.columns)
+            event_iter = tqdm(_row_iter(), total=len(df_e), desc=f"{ticker} events", leave=False)
+        except Exception:
+            event_iter = (tuple(v for v in row) for _, row in df_e.iterrows())
+
+        for values in event_iter:
+            row = {col: values[i] for i, col in enumerate(df_e.columns)}
             event_dt = row[date_col]
             if not isinstance(event_dt, pd.Timestamp):
                 continue
