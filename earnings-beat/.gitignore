@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+.Python
+
+# OS / tooling
+.DS_Store
+.env
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.cache/
+logs/
+tmp/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Notebooks and data/model artifacts (keep placeholders)
+data/raw/*
+!data/raw/.gitkeep
+data/features/*
+!data/features/.gitkeep
+models/*
+!models/.gitkeep
+notebooks/*
+!notebooks/.gitkeep
+
