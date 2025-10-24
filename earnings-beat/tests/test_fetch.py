@@ -6,6 +6,17 @@ def test_import_fetch_module():
     import src.fetch as fetch  # noqa: F401
 
 
+def test_fetch_api_presence():
+    import src.fetch as fetch
+
+    assert hasattr(fetch, "get_price_history")
+    assert hasattr(fetch, "get_quarterly_financials")
+    assert hasattr(fetch, "get_earnings_history")
+    assert hasattr(fetch, "get_earnings_trend")
+    assert hasattr(fetch, "get_recommendations")
+    assert hasattr(fetch, "get_beta_estimate")
+
+
 def test_fetch_config_dataclass_fields():
     from src.fetch import FetchConfig
 
