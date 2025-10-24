@@ -35,6 +35,17 @@ python -m src.cli evaluate --features data/features/AAPL_features.parquet --mode
 python -m src.cli predict --features data/features/AAPL_features.parquet --model models/beat_predictor.joblib
 ```
 
+### Test matrix (example)
+This repo is compatible with a simple GitHub Actions-like matrix (not included here):
+```
+python-version: ["3.10", "3.11", "3.12"]
+os: [ubuntu-latest, macos-latest]
+steps:
+  - run: pip install -r requirements.txt pytest
+  - run: pytest -m "not network"  # fast unit tests without network
+  - run: pytest -m network --maxfail=1 -q || true  # allow flaky network tests
+```
+
 ### Disclaimer
 This project is for educational and research purposes only. It is not an investment product. Past performance does not guarantee future results. Nothing in this repository constitutes financial advice. Use at your own risk.
 
