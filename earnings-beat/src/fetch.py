@@ -136,9 +136,17 @@ def get_earnings_history(ticker: str) -> "pd.DataFrame":
             data = tk.get_earnings_history()
         except Exception:
             data = None
-        if not data:
+        df = pd.DataFrame(data) if data else pd.DataFrame()
+        # Fallback: get_earnings_dates has columns like 'Earnings Date','Reported EPS','EPS Estimate'
+        if df is None or df.empty:
+            try:
+                ed = tk.get_earnings_dates(limit=1000)
+                if ed is not None and not ed.empty:
+                    df = ed.reset_index(drop=True)
+            except Exception:
+                df = pd.DataFrame()
+        if df is None or df.empty:
             return pd.DataFrame()
-        df = pd.DataFrame(data)
         _ensure_dir(cache_path)
         try:
             df.to_parquet(cache_path, index=False)

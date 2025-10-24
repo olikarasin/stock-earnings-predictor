@@ -490,15 +490,28 @@ def build_labeled_events(tickers: list[str], lookback_years: int = 8) -> "pd.Dat
 
     def detect_event_date_col(df: pd.DataFrame) -> Optional[str]:
         lower = {c.lower(): c for c in df.columns}
-        for name in ["startdatetime", "reportdate", "date", "period", "quarter", "reporteddate", "earnings date"]:
+        for name in ["startdatetime", "reportdate", "date", "period", "quarter", "reporteddate", "earnings date", "earningsdate"]:
             if name in lower:
                 return lower[name]
         return None
 
     def detect_eps_cols(df: pd.DataFrame) -> tuple[Optional[str], Optional[str]]:
         lower = {c.lower(): c for c in df.columns}
-        actual = lower.get("epsactual") or lower.get("actual") or lower.get("eps_actual")
-        est = lower.get("epsestimate") or lower.get("estimate") or lower.get("eps_estimate")
+        # Common yfinance possibilities
+        actual = (
+            lower.get("epsactual")
+            or lower.get("actual")
+            or lower.get("eps_actual")
+            or lower.get("reportedeps")
+            or lower.get("reported eps")
+        )
+        est = (
+            lower.get("epsestimate")
+            or lower.get("estimate")
+            or lower.get("eps_estimate")
+            or lower.get("epsestimate")
+            or lower.get("eps estimate")
+        )
         return actual, est
 
     def previous_trading_day_before(ticker: str, event_dt: pd.Timestamp) -> Optional[pd.Timestamp]:
