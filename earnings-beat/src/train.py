@@ -28,7 +28,27 @@ def train_from_file(config: TrainCLIConfig):
         X, y, test_size=config.test_size, random_state=config.random_state, stratify=y
     )
 
-    model = train_model(X_train, y_train, TrainConfig(model_type=config.model_type, random_state=config.random_state))
+    # Train with graceful fallback if LightGBM is unavailable on macOS (libomp)
+    try:
+        model = train_model(
+            X_train,
+            y_train,
+            TrainConfig(model_type=config.model_type, random_state=config.random_state),
+        )
+    except Exception as e:
+        if config.model_type == "lightgbm":
+            print(
+                "LightGBM unavailable. To enable, install OpenMP: 'brew install libomp' then 'pip install --force-reinstall lightgbm'.\n"
+                "Proceeding with RandomForest fallback."
+            )
+            from sklearn.ensemble import RandomForestClassifier
+
+            model = RandomForestClassifier(
+                n_estimators=400, random_state=config.random_state, class_weight="balanced"
+            )
+            model.fit(X_train, y_train)
+        else:
+            raise
     # simple validation metric
     try:
         y_pred_proba = model.predict_proba(X_valid)[:, 1]
@@ -145,17 +165,30 @@ def train_pipeline(tickers_file: Optional[Path] = None, years: int = 8, models_d
     y_test = test_df["beat"].astype(int).values
 
     # Models
-    lgbm = LGBMClassifier(
-        objective="binary",
-        n_estimators=600,
-        learning_rate=0.03,
-        num_leaves=31,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        random_state=random_state,
-        class_weight="balanced",
-    )
-    lgbm.fit(X_train, y_train)
+    # Train LightGBM, fallback to RandomForest if unavailable
+    try:
+        lgbm = LGBMClassifier(
+            objective="binary",
+            n_estimators=600,
+            learning_rate=0.03,
+            num_leaves=31,
+            subsample=0.9,
+            colsample_bytree=0.9,
+            random_state=random_state,
+            class_weight="balanced",
+        )
+        lgbm.fit(X_train, y_train)
+    except Exception:
+        print(
+            "LightGBM unavailable. To enable, install OpenMP: 'brew install libomp' then 'pip install --force-reinstall lightgbm'.\n"
+            "Falling back to RandomForest for primary model."
+        )
+        from sklearn.ensemble import RandomForestClassifier
+
+        lgbm = RandomForestClassifier(
+            n_estimators=500, random_state=random_state, n_jobs=-1, class_weight="balanced"
+        )
+        lgbm.fit(X_train, y_train)
 
     logreg = LogisticRegression(max_iter=2000, C=1.0, solver="lbfgs", class_weight="balanced")
     logreg.fit(X_train, y_train)
